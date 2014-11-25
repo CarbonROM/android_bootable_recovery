@@ -80,6 +80,11 @@ LOCAL_SRC_FILES := \
     ui.cpp \
     vr_ui.cpp \
     wear_ui.cpp \
+    voldclient.cpp
+
+# External tools
+LOCAL_SRC_FILES += \
+    ../../system/vold/vdc.cpp
 
 LOCAL_MODULE := recovery
 
@@ -161,6 +166,7 @@ LOCAL_STATIC_LIBRARIES := \
     libzopfli_static \
     libminizip_static \
     libminiunz_static \
+    libsdcard \
     libotautil \
     libmounts \
     libz \
@@ -190,6 +196,10 @@ endif
 
 LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
 
+LOCAL_CFLAGS += -DMINIVOLD
+LOCAL_C_INCLUDES += system/extras/ext4_utils system/core/fs_mgr/include external/fsck_msdos
+LOCAL_C_INCLUDES += system/vold
+
 ifeq ($(TARGET_RECOVERY_UI_LIB),)
   LOCAL_SRC_FILES += default_device.cpp
 else
@@ -203,7 +213,8 @@ endif
 ifeq ($(ONE_SHOT_MAKEFILE),)
 LOCAL_ADDITIONAL_DEPENDENCIES += \
     toybox_static \
-    recovery_mkshrc
+    recovery_mkshrc \
+    minivold
 endif
 
 # Symlinks
@@ -214,7 +225,8 @@ RECOVERY_TOOLS := \
     gunzip \
     gzip \
     unzip \
-    zip
+    zip \
+    vdc
 LOCAL_POST_INSTALL_CMD := $(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf ${LOCAL_MODULE} $(LOCAL_MODULE_PATH)/$(t);)
 
 ifneq ($(TARGET_RECOVERY_DEVICE_MODULES),)
