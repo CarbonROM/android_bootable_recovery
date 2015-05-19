@@ -76,7 +76,6 @@ LOCAL_STATIC_LIBRARIES := \
     libcutils \
     liblog \
     libselinux \
-    libstdc++ \
     libm \
     libc \
     libz
@@ -114,7 +113,6 @@ LOCAL_STATIC_LIBRARIES := \
     libminui \
     libminzip \
     libcutils \
-    libstdc++ \
     libc
 include $(BUILD_EXECUTABLE)
 
