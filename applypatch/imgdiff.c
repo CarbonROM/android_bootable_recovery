@@ -403,6 +403,7 @@ unsigned char* ReadImage(const char* filename,
   while (pos < st.st_size) {
     unsigned char* p = img+pos;
 
+    int processed_deflate = 0;
     if (st.st_size - pos >= 4 &&
         p[0] == 0x1f && p[1] == 0x8b &&
         p[2] == 0x08 &&    // deflate compression
@@ -455,48 +456,65 @@ unsigned char* ReadImage(const char* filename,
         strm.next_out = curr->data + curr->len;
         ret = inflate(&strm, Z_NO_FLUSH);
         if (ret < 0) {
-            printf("Error: inflate failed [%s] at file offset [%zu]\n"
-                    "imgdiff only supports gzip kernel compression,"
-                    " did you try CONFIG_KERNEL_LZO?\n",
-                    strm.msg, chunk_offset);
-            free(img);
-            return NULL;
+          if (!processed_deflate) {
+            // This is the first chunk, assume that it's just a spurious
+            // gzip header instead of a real one.
+            break;
+          }
+          printf("Error: inflate failed [%s] at file offset [%zu]\n"
+                 "imgdiff only supports gzip kernel compression,"
+                 " did you try CONFIG_KERNEL_LZO?\n",
+                 strm.msg, chunk_offset);
+          free(img);
+          return NULL;
         }
         curr->len = allocated - strm.avail_out;
         if (strm.avail_out == 0) {
           allocated *= 2;
           curr->data = realloc(curr->data, allocated);
         }
+        processed_deflate = 1;
       } while (ret != Z_STREAM_END);
 
-      curr->deflate_len = st.st_size - strm.avail_in - pos;
-      inflateEnd(&strm);
-      pos += curr->deflate_len;
-      p += curr->deflate_len;
-      ++curr;
+      if (ret == Z_STREAM_END) {
+        // Properly deflated a gzip'd section.
+        curr->deflate_len = st.st_size - strm.avail_in - pos;
+        inflateEnd(&strm);
+        pos += curr->deflate_len;
+        p += curr->deflate_len;
+        ++curr;
 
-      // create a normal chunk for the footer
+        // create a normal chunk for the footer
 
-      curr->type = CHUNK_NORMAL;
-      curr->start = pos;
-      curr->len = GZIP_FOOTER_LEN;
-      curr->data = img+pos;
-      curr->I = NULL;
+        curr->type = CHUNK_NORMAL;
+        curr->start = pos;
+        curr->len = GZIP_FOOTER_LEN;
+        curr->data = img+pos;
+        curr->I = NULL;
 
-      pos += curr->len;
-      p += curr->len;
-      ++curr;
+        pos += curr->len;
+        p += curr->len;
+        ++curr;
 
-      // The footer (that we just skipped over) contains the size of
-      // the uncompressed data.  Double-check to make sure that it
-      // matches the size of the data we got when we actually did
-      // the decompression.
-      size_t footer_size = Read4(p-4);
-      if (footer_size != curr[-2].len) {
-        printf("Error: footer size %d != decompressed size %d\n",
-                footer_size, curr[-2].len);
-        free(img);
-        return NULL;
+        // The footer (that we just skipped over) contains the size of
+        // the uncompressed data.  Double-check to make sure that it
+        // matches the size of the data we got when we actually did
+        // the decompression.
+        size_t footer_size = Read4(p-4);
+        if (footer_size != curr[-2].len) {
+          printf("Error: footer size %d != decompressed size %d\n",
+                 footer_size, curr[-2].len);
+          free(img);
+          return NULL;
+        }
+      } else {
+        // Didn't deflate a gzip section at all, treat as spurious
+        // gzip header by skipping this chunk and begin search after
+        // previous header without advancing the current chunk.
+        printf("Warning: skipping spurious gzip header at offset %zu\n",
+               pos - GZIP_HEADER_LEN);
+        *num_chunks -= 2;
+        free(curr->data);
       }
     } else {
       // Reallocate the list for every chunk; we expect the number of
