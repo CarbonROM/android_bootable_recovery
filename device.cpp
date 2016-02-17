@@ -52,6 +52,10 @@ int Device::HandleMenuKey(int key, int visible) {
   if (!visible) {
     return kNoAction;
   }
+  
+  if (key & KEY_FLAG_ABS) {
+      return key;
+  }
 
   switch (key) {
     case KEY_DOWN:

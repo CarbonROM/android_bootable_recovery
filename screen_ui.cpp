@@ -31,15 +31,13 @@
 #include <vector>
 
 #include "base/strings.h"
+#include "base/stringprintf.h"
 #include "cutils/properties.h"
 #include "common.h"
 #include "device.h"
 #include "minui/minui.h"
 #include "screen_ui.h"
 #include "ui.h"
-
-static int char_width;
-static int char_height;
 
 // Return the current time as a double (including fractions of a second).
 static double now() {
@@ -58,6 +56,8 @@ ScreenRecoveryUI::ScreenRecoveryUI() :
     progressScopeSize(0),
     progress(0),
     pagesIdentical(false),
+    log_text_cols_(0),
+    log_text_rows_(0),
     text_cols_(0),
     text_rows_(0),
     text_(nullptr),
@@ -66,6 +66,9 @@ ScreenRecoveryUI::ScreenRecoveryUI() :
     text_top_(0),
     show_text(false),
     show_text_ever(false),
+    dialog_icon(NONE),
+    dialog_text(nullptr),
+    dialog_show_log(false),
     menu_(nullptr),
     show_menu(false),
     menu_items(0),
@@ -76,7 +79,8 @@ ScreenRecoveryUI::ScreenRecoveryUI() :
     stage(-1),
     max_stage(-1) {
 
-    for (int i = 0; i < 5; i++) {
+    headerIcon = nullptr;
+    for (int i = 0; i < NR_ICONS; i++) {
         backgroundIcon[i] = nullptr;
     }
     pthread_mutex_init(&updateMutex, nullptr);
@@ -130,7 +134,7 @@ void ScreenRecoveryUI::draw_background_locked(Icon icon) {
 // Draw the progress bar (if any) on the screen.  Does not flip pages.
 // Should only be called with updateMutex locked.
 void ScreenRecoveryUI::draw_progress_locked() {
-    if (currentIcon == ERROR) return;
+    if (currentIcon == D_ERROR) return;
 
     if (currentIcon == INSTALLING_UPDATE || currentIcon == ERASING) {
         GRSurface* icon = installation[installingFrame];
@@ -198,6 +202,9 @@ void ScreenRecoveryUI::SetColor(UIElement e) {
         case TEXT_FILL:
             gr_color(0, 0, 0, 160);
             break;
+        case ERROR_TEXT:
+            gr_color(255, 0, 0, 255);
+            break;
         default:
             gr_color(255, 255, 255, 255);
             break;
@@ -213,7 +220,7 @@ void ScreenRecoveryUI::DrawHorizontalRule(int* y) {
 
 void ScreenRecoveryUI::DrawTextLine(int* y, const char* line, bool bold) {
     gr_text(4, *y, line, bold);
-    *y += char_height + 4;
+    *y += char_height_ + 4;
 }
 
 void ScreenRecoveryUI::DrawTextLines(int* y, const char* const* lines) {
@@ -233,6 +240,94 @@ static const char* LONG_PRESS_HELP[] = {
     NULL
 };
 
+int ScreenRecoveryUI::draw_header_icon()
+{
+    GRSurface* surface = headerIcon;
+    int iw = header_width_;
+    int ih = header_height_;
+    int ix = (gr_fb_width() - iw) / 2;
+    int iy = 0;
+    gr_blit(surface, 0, 0, iw, ih, ix, iy);
+    return ih;
+}
+
+void ScreenRecoveryUI::draw_menu_item(int textrow, const char *text, int selected)
+{
+    if (selected) {
+        SetColor(MENU_SEL_BG);
+        gr_fill(0, (textrow) * char_height_,
+                gr_fb_width(), (textrow+3) * char_height_ - 1);
+        SetColor(MENU_SEL_FG);
+        gr_text(4, (textrow+1) * char_height_ - 1, text, 0);
+        SetColor(MENU);
+    }
+    else {
+        SetColor(MENU);
+        gr_text(4, (textrow+1) * char_height_ - 1, text, 0);
+    }
+}
+
+void ScreenRecoveryUI::draw_dialog()
+{
+    int x, y, w, h;
+
+    if (dialog_show_log) {
+        draw_background_locked(NONE);
+    } else {
+        draw_background_locked(dialog_icon);
+    }
+    draw_header_icon();
+
+    int iconHeight = gr_get_height(backgroundIcon[dialog_icon]);
+
+    x = (gr_fb_width()/2 - (char_width_ * strlen(dialog_text))/2);
+    if (dialog_show_log) {
+        y = gr_get_height(headerIcon) + char_height_;
+    }
+    else {
+        y = (gr_fb_height()/2 + iconHeight/2);
+    }
+
+    SetColor(ERROR_TEXT);
+    gr_text(x, y, dialog_text, 0);
+    
+    y += char_height_ + 2;
+
+    if (dialog_show_log) {
+        int cx, cy;
+        gr_set_font("log");
+        gr_font_size(&cx, &cy);
+        size_t row;
+        for (row = 0; row < log_text_rows_; ++row) {
+            gr_text(2, y, text_[row], 0);
+            y += cy + 2;
+        }
+        gr_set_font("menu");
+    }
+
+    if (dialog_icon == D_ERROR) {
+        /*
+         * This could be improved...
+         *
+         * Draw rect around text "Okay".
+         * Text is centered horizontally.
+         * Bottom of text is 4 lines from bottom of screen.
+         * Rect width 4px
+         * Rect padding 8px
+         */
+        w = char_width_*4;
+        h = char_height_;
+        x = gr_fb_width()/2 - w/2;
+        y = gr_fb_height() - h - 4 * char_height_;
+        SetColor(HEADER);
+        gr_fill(x-(4+8), y-(4+8), x+w+(4+8), y+h+(4+8));
+        SetColor(MENU_SEL_BG);
+        gr_fill(x-8, y-8, x+w+8, y+h+8);
+        SetColor(MENU_SEL_FG);
+        gr_text(x, y, "Okay", 0);
+    }
+}
+
 // Redraw everything on the screen.  Does not flip pages.
 // Should only be called with updateMutex locked.
 void ScreenRecoveryUI::draw_screen_locked() {
@@ -240,56 +335,46 @@ void ScreenRecoveryUI::draw_screen_locked() {
         draw_background_locked(currentIcon);
         draw_progress_locked();
     } else {
+        if (DialogShowing()) {
+            draw_dialog();
+            return;
+        }
         gr_color(0, 0, 0, 255);
         gr_clear();
 
-        int y = 0;
-        if (show_menu) {
-            char recovery_fingerprint[PROPERTY_VALUE_MAX];
-            property_get("ro.bootimage.build.fingerprint", recovery_fingerprint, "");
+        if (currentIcon == INSTALLING_UPDATE) {
+            size_t y = header_height_ + 4;
 
-            SetColor(INFO);
-            DrawTextLine(&y, "Android Recovery", true);
-            for (auto& chunk : android::base::Split(recovery_fingerprint, ":")) {
-                DrawTextLine(&y, chunk.c_str(), false);
+            draw_background_locked(currentIcon);
+
+            SetColor(LOG);
+            int cx, cy;
+            gr_set_font("log");
+            gr_font_size(&cx, &cy);
+            // display from the bottom up, until we hit the top of the
+            // screen or we've displayed the entire text buffer.
+            size_t ty, count;
+            int row = (text_first_row_ + log_text_rows_ - 1) % log_text_rows_;
+            for (ty = gr_fb_height() - cy, count = 0;
+                 ty > y + 2 && count < log_text_rows_;
+                 ty -= (cy + 2), ++count) {
+                gr_text(4, ty, text_[row], 0);
+                --row;
+                if (row < 0) row = log_text_rows_ - 1;
             }
-            DrawTextLines(&y, HasThreeButtons() ? REGULAR_HELP : LONG_PRESS_HELP);
-
-            SetColor(HEADER);
-            DrawTextLines(&y, menu_headers_);
-
-            SetColor(MENU);
-            DrawHorizontalRule(&y);
-            y += 4;
-            for (int i = 0; i < menu_items; ++i) {
-                if (i == menu_sel) {
-                    // Draw the highlight bar.
-                    SetColor(IsLongPress() ? MENU_SEL_BG_ACTIVE : MENU_SEL_BG);
-                    gr_fill(0, y - 2, gr_fb_width(), y + char_height + 2);
-                    // Bold white text for the selected item.
-                    SetColor(MENU_SEL_FG);
-                    gr_text(4, y, menu_[i], true);
-                    SetColor(MENU);
-                } else {
-                    gr_text(4, y, menu_[i], false);
-                }
-                y += char_height + 4;
-            }
-            DrawHorizontalRule(&y);
+            gr_set_font("menu");
+            return;
         }
 
-        // display from the bottom up, until we hit the top of the
-        // screen, the bottom of the menu, or we've displayed the
-        // entire text buffer.
-        SetColor(LOG);
-        int row = (text_top_ + text_rows_ - 1) % text_rows_;
-        size_t count = 0;
-        for (int ty = gr_fb_height() - char_height;
-             ty >= y && count < text_rows_;
-             ty -= char_height, ++count) {
-            gr_text(0, ty, text_[row], false);
-            --row;
-            if (row < 0) row = text_rows_ - 1;
+        if (show_menu) {
+            draw_header_icon();
+            int nr_items = menu_items - menu_show_start_;
+            if (nr_items > max_menu_rows_)
+                nr_items = max_menu_rows_;
+            for (int i = 0; i < nr_items; ++i) {
+                draw_menu_item(text_first_row_ + 3*i, menu_[menu_show_start_ + i],
+                        ((menu_show_start_ + i) == menu_sel));
+            }
         }
     }
 }
@@ -391,23 +476,38 @@ static char** Alloc2d(size_t rows, size_t cols) {
 void ScreenRecoveryUI::Init() {
     gr_init();
 
-    gr_font_size(&char_width, &char_height);
-    text_rows_ = gr_fb_height() / char_height;
-    text_cols_ = gr_fb_width() / char_width;
+    gr_set_font("log");
+    gr_font_size(&log_char_width_, &log_char_height_);
+    gr_set_font("menu");
+    gr_font_size(&char_width_, &char_height_);
+    text_rows_ = gr_fb_height() / char_height_;
+    text_cols_ = gr_fb_width() / char_width_;
 
+    log_text_rows_ = gr_fb_height() / log_char_height_;
+    log_text_cols_ = gr_fb_width() / log_char_width_;
+    
     text_ = Alloc2d(text_rows_, text_cols_ + 1);
     file_viewer_text_ = Alloc2d(text_rows_, text_cols_ + 1);
     menu_ = Alloc2d(text_rows_, text_cols_ + 1);
 
     text_col_ = text_row_ = 0;
     text_top_ = 1;
+    
+    LoadBitmap("icon_header", &headerIcon);
+    header_height_ = gr_get_height(headerIcon);
+    header_width_ = gr_get_width(headerIcon);
+
+    text_first_row_ = (header_height_ / char_height_) + 1;
+    menu_item_start_ = text_first_row_ * char_height_;
+    max_menu_rows_ = (text_rows_ - text_first_row_) / 3;
 
     backgroundIcon[NONE] = nullptr;
     LoadBitmapArray("icon_installing", &installing_frames, &installation);
     backgroundIcon[INSTALLING_UPDATE] = installing_frames ? installation[0] : nullptr;
     backgroundIcon[ERASING] = backgroundIcon[INSTALLING_UPDATE];
-    LoadBitmap("icon_error", &backgroundIcon[ERROR]);
-    backgroundIcon[NO_COMMAND] = backgroundIcon[ERROR];
+    LoadBitmap("icon_info", &backgroundIcon[D_INFO]);
+    LoadBitmap("icon_error", &backgroundIcon[D_ERROR]);
+    backgroundIcon[NO_COMMAND] = backgroundIcon[D_ERROR];
 
     LoadBitmap("progress_empty", &progressBarEmpty);
     LoadBitmap("progress_fill", &progressBarFill);
@@ -417,7 +517,7 @@ void ScreenRecoveryUI::Init() {
     LoadLocalizedBitmap("installing_text", &backgroundText[INSTALLING_UPDATE]);
     LoadLocalizedBitmap("erasing_text", &backgroundText[ERASING]);
     LoadLocalizedBitmap("no_command_text", &backgroundText[NO_COMMAND]);
-    LoadLocalizedBitmap("error_text", &backgroundText[ERROR]);
+    LoadLocalizedBitmap("error_text", &backgroundText[D_ERROR]);
 
     pthread_create(&progress_thread_, nullptr, ProgressThreadStartRoutine, this);
 
@@ -506,30 +606,43 @@ void ScreenRecoveryUI::SetStage(int current, int max) {
     pthread_mutex_unlock(&updateMutex);
 }
 
-void ScreenRecoveryUI::Print(const char *fmt, ...) {
-    char buf[256];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(buf, 256, fmt, ap);
-    va_end(ap);
-
-    fputs(buf, stdout);
-
-    pthread_mutex_lock(&updateMutex);
-    if (text_rows_ > 0 && text_cols_ > 0) {
-        for (const char* ptr = buf; *ptr != '\0'; ++ptr) {
-            if (*ptr == '\n' || text_col_ >= text_cols_) {
+void ScreenRecoveryUI::PrintV(const char* fmt, bool copy_to_stdout, va_list ap) {
+    std::string str;
+     android::base::StringAppendV(&str, fmt, ap);
+ 
+     if (copy_to_stdout) {
+         fputs(str.c_str(), stdout);
+      }
+  
+      pthread_mutex_lock(&updateMutex);
+    if (log_text_rows_ > 0 && log_text_cols_ > 0) {
+          for (const char* ptr = str.c_str(); *ptr != '\0'; ++ptr) {
+            if (*ptr == '\n' || text_col_ >= log_text_cols_) {
                 text_[text_row_][text_col_] = '\0';
                 text_col_ = 0;
-                text_row_ = (text_row_ + 1) % text_rows_;
-                if (text_row_ == text_top_) text_top_ = (text_top_ + 1) % text_rows_;
-            }
-            if (*ptr != '\n') text_[text_row_][text_col_++] = *ptr;
-        }
-        text_[text_row_][text_col_] = '\0';
-        update_screen_locked();
-    }
-    pthread_mutex_unlock(&updateMutex);
+                text_row_ = (text_row_ + 1) % log_text_rows_;
+                if (text_row_ == text_top_) text_top_ = (text_top_ + 1) % log_text_rows_;
+              }
+              if (*ptr != '\n') text_[text_row_][text_col_++] = *ptr;
+          }
+         text_[text_row_][text_col_] = '\0';
+         update_screen_locked();
+     }
+     pthread_mutex_unlock(&updateMutex);
+}
+
+void ScreenRecoveryUI::Print(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    PrintV(fmt, true, ap);
+    va_end(ap);
+}
+
+void ScreenRecoveryUI::PrintOnScreenOnly(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    PrintV(fmt, false, ap);
+    va_end(ap);
 }
 
 void ScreenRecoveryUI::PutChar(char ch) {
@@ -630,6 +743,48 @@ void ScreenRecoveryUI::ShowFile(const char* filename) {
     text_top_ = old_text_top;
 }
 
+void ScreenRecoveryUI::DialogShowInfo(const char* text)
+{
+    pthread_mutex_lock(&updateMutex);
+    free(dialog_text);
+    dialog_text = strdup(text);
+    dialog_show_log = false;
+    dialog_icon = D_INFO;
+    update_screen_locked();
+    pthread_mutex_unlock(&updateMutex);
+}
+
+void ScreenRecoveryUI::DialogShowError(const char* text)
+{
+    pthread_mutex_lock(&updateMutex);
+    free(dialog_text);
+    dialog_text = strdup(text);
+    dialog_show_log = false;
+    dialog_icon = D_ERROR;
+    update_screen_locked();
+    pthread_mutex_unlock(&updateMutex);
+}
+
+void ScreenRecoveryUI::DialogDismiss()
+{
+    pthread_mutex_lock(&updateMutex);
+    free(dialog_text);
+    dialog_text = NULL;
+    update_screen_locked();
+    pthread_mutex_unlock(&updateMutex);
+}
+
+void ScreenRecoveryUI::DialogShowErrorLog(const char* text)
+{
+    pthread_mutex_lock(&updateMutex);
+    free(dialog_text);
+    dialog_text = strdup(text);
+    dialog_show_log = true;
+    dialog_icon = D_ERROR;
+    update_screen_locked();
+    pthread_mutex_unlock(&updateMutex);
+}
+
 void ScreenRecoveryUI::StartMenu(const char* const * headers, const char* const * items,
                                  int initial_selection) {
     pthread_mutex_lock(&updateMutex);
@@ -648,16 +803,25 @@ void ScreenRecoveryUI::StartMenu(const char* const * headers, const char* const 
     pthread_mutex_unlock(&updateMutex);
 }
 
-int ScreenRecoveryUI::SelectMenu(int sel) {
+int ScreenRecoveryUI::SelectMenu(int sel, bool abs /* = false */) {
     pthread_mutex_lock(&updateMutex);
+    if (abs) {
+        sel += menu_show_start_;
+    }
     if (show_menu) {
         int old_sel = menu_sel;
         menu_sel = sel;
 
         // Wrap at top and bottom.
-        if (menu_sel < 0) menu_sel = menu_items - 1;
-        if (menu_sel >= menu_items) menu_sel = 0;
-
+        if (menu_sel < 0) menu_sel = menu_items + menu_sel;
+        if (menu_sel >= menu_items) menu_sel = menu_sel - menu_items;
+        
+        if (menu_sel < menu_show_start_ && menu_show_start_ > 0) {
+            menu_show_start_ = menu_sel;
+        }
+        if (menu_sel - menu_show_start_ >= max_menu_rows_) {
+            menu_show_start_ = menu_sel - max_menu_rows_ + 1;
+        }
         sel = menu_sel;
         if (menu_sel != old_sel) update_screen_locked();
     }

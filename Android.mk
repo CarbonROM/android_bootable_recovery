@@ -37,6 +37,7 @@ LOCAL_SRC_FILES := \
     fuse_sdcard_provider.cpp \
     install.cpp \
     recovery.cpp \
+    messagesocket.cpp \
     roots.cpp \
     screen_ui.cpp \
     ui.cpp \
@@ -84,6 +85,13 @@ LOCAL_STATIC_LIBRARIES := \
     libz
 
 LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+
+# Handling for EV_REL is disabled by default because some accelerometers
+# send EV_REL events.  Actual EV_REL devices are rare on modern hardware
+# so it's cleaner just to disable it by default.
+ifneq ($(BOARD_RECOVERY_NEEDS_REL_INPUT),)
+    LOCAL_CFLAGS += -DBOARD_RECOVERY_NEEDS_REL_INPUT
+endif
 
 ifeq ($(TARGET_RECOVERY_UI_LIB),)
   LOCAL_SRC_FILES += default_device.cpp
