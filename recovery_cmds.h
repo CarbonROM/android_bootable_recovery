@@ -21,7 +21,6 @@
 #include <string.h>
 
 int minizip_main(int argc, char **argv);
-int miniunz_main(int argc, char **argv);
 int make_ext4fs_main(int argc, char **argv);
 int reboot_main(int argc, char **argv);
 int poweroff_main(int argc, char **argv);
@@ -54,8 +53,6 @@ static const struct recovery_cmd recovery_cmds[] = {
     { "pigz",           pigz_main },
     { "gzip",           pigz_main },
     { "gunzip",         pigz_main },
-    { "zip",            minizip_main },
-    { "unzip",          miniunz_main },
     { "start",          start_main },
     { "stop",           stop_main },
     { "sh",             mksh_main },
