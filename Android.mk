@@ -73,8 +73,7 @@ LOCAL_STATIC_LIBRARIES := \
     libminiunz_static \
     libsparse_static \
     libfsck_msdos \
-    libminipigz_static \
-    libzopfli \
+    libminipigz \
     libreboot_static \
     libminzip \
     libz \
