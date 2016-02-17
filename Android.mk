@@ -15,6 +15,7 @@
 
 LOCAL_PATH := $(call my-dir)
 
+
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := fuse_sideload.cpp
@@ -96,11 +97,14 @@ LOCAL_STATIC_LIBRARIES := \
     libext2_blkid \
     libext2_uuid
 
-LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
-
-ifeq ($(TARGET_USE_MDTP), true)
-    LOCAL_CFLAGS += -DUSE_MDTP
+# OEMLOCK support requires a device specific liboemlock be supplied.
+# See comments in recovery.cpp for the API.
+ifeq ($(TARGET_HAVE_OEMLOCK), true)
+    LOCAL_CFLAGS += -DHAVE_OEMLOCK
+    LOCAL_STATIC_LIBRARIES += liboemlock
 endif
+
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
 
 ifeq ($(TARGET_RECOVERY_UI_LIB),)
   LOCAL_SRC_FILES += default_device.cpp
@@ -111,32 +115,41 @@ endif
 LOCAL_C_INCLUDES += system/extras/ext4_utils
 LOCAL_C_INCLUDES += external/boringssl/include
 
+# Symlinks
+RECOVERY_SYMLINKS := $(addprefix $(TARGET_RECOVERY_ROOT_OUT)/sbin/,$(RECOVERY_LINKS))
+
 ifeq ($(ONE_SHOT_MAKEFILE),)
 LOCAL_ADDITIONAL_DEPENDENCIES += \
-    fstools \
-    recovery_mkshrc
+    mount.exfat_static \
+    recovery_e2fsck \
+    recovery_mke2fs \
+    recovery_tune2fs 
 
+ifneq ($(TARGET_RECOVERY_DEVICE_MODULES),)
+    LOCAL_ADDITIONAL_DEPENDENCIES += $(TARGET_RECOVERY_DEVICE_MODULES)
+endif
 endif
 
-TOYBOX_INSTLIST := $(HOST_OUT_EXECUTABLES)/toybox-instlist
-LOCAL_ADDITIONAL_DEPENDENCIES += toybox_recovery_links
+# Now let's do recovery symlinks
+LOCAL_REQUIRED_MODULES += toybox-instlist recovery_mkshrc
 
-# Set up the static symlinks
 RECOVERY_TOOLS := \
+<<<<<<< HEAD
+    gunzip gzip make_ext4fs minizip reboot setup_adbd sh start stop toybox
+=======
     gunzip gzip make_ext4fs reboot setup_adbd sh start stop toybox unzip zip
 LOCAL_POST_INSTALL_CMD := \
-	$(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf recovery $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);)
+	$(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf recovery $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);) 
+LOCAL_REQUIRED_MODULES += install_toybox_symlinks
+include $(BUILD_EXECUTABLE)
+>>>>>>> 82a6c0c... sr: Enable zip/unzip commands
+
+# Install the symlinks.
+LOCAL_POST_INSTALL_CMD := \
+	$(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf recovery $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);) \
+	$(foreach t,$(shell toybox-instlist),ln -sf toybox $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);)
 
 include $(BUILD_EXECUTABLE)
-
-# Run toybox-instlist and generate the rest of the symlinks
-toybox_recovery_links: $(TOYBOX_INSTLIST) recovery
-toybox_recovery_links: TOY_LIST=$(shell $(TOYBOX_INSTLIST))
-toybox_recovery_links: TOYBOX_BINARY := $(TARGET_RECOVERY_ROOT_OUT)/sbin/toybox
-toybox_recovery_links:
-	@echo -e ${CL_CYN}"Generate Toybox links:"${CL_RST} $(TOY_LIST)
-	@mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/sbin
-	$(hide) $(foreach t,$(TOY_LIST),ln -sf toybox $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);)
 
 # mkshrc
 include $(CLEAR_VARS)
@@ -229,5 +242,4 @@ include $(LOCAL_PATH)/minui/Android.mk \
     $(LOCAL_PATH)/edify/Android.mk \
     $(LOCAL_PATH)/uncrypt/Android.mk \
     $(LOCAL_PATH)/updater/Android.mk \
-    $(LOCAL_PATH)/applypatch/Android.mk \
-    $(LOCAL_PATH)/fstools/Android.mk
+    $(LOCAL_PATH)/applypatch/Android.mk
