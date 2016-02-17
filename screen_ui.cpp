@@ -187,23 +187,23 @@ void ScreenRecoveryUI::SetColor(UIElement e) {
             gr_color(249, 194, 0, 255);
             break;
         case HEADER:
-            gr_color(247, 0, 6, 255);
+            gr_color(111, 111, 111, 255);
             break;
         case MENU:
         case MENU_SEL_BG:
-            gr_color(0, 106, 157, 255);
+            gr_color(60, 60, 61, 255);
             break;
         case MENU_SEL_BG_ACTIVE:
-            gr_color(0, 156, 100, 255);
+            gr_color(60, 60, 61, 255);
             break;
         case MENU_SEL_FG:
             gr_color(255, 255, 255, 255);
             break;
         case LOG:
-            gr_color(196, 196, 196, 255);
+            gr_color(76, 76, 76, 255);
             break;
         case TEXT_FILL:
-            gr_color(0, 0, 0, 160);
+            gr_color(0, 0, 0, 255);
             break;
         case ERROR_TEXT:
             gr_color(255, 0, 0, 255);
@@ -836,7 +836,6 @@ void ScreenRecoveryUI::EndMenu() {
     pthread_mutex_lock(&updateMutex);
     if (show_menu && text_rows_ > 0 && text_cols_ > 0) {
         show_menu = false;
-        update_screen_locked();
     }
     pthread_mutex_unlock(&updateMutex);
 }
