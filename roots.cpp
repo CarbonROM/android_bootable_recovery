@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <dirent.h>
 
 #include <fs_mgr.h>
 #include "mtdutils/mtdutils.h"
@@ -167,6 +168,45 @@ static int exec_cmd(const char* path, char* const argv[]) {
     return WEXITSTATUS(status);
 }
 
+static int rmtree_except(const char* path, const char* except)
+{
+    char pathbuf[PATH_MAX];
+    int rc = 0;
+    DIR* dp = opendir(path);
+    if (dp == NULL) {
+        return -1;
+    }
+    struct dirent* de;
+    while ((de = readdir(dp)) != NULL) {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+            continue;
+        if (except && !strcmp(de->d_name, except))
+            continue;
+        struct stat st;
+        snprintf(pathbuf, sizeof(pathbuf), "%s/%s", path, de->d_name);
+        rc = lstat(pathbuf, &st);
+        if (rc != 0) {
+            LOGI("Failed to stat %s\n", pathbuf);
+            break;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            rc = rmtree_except(pathbuf, NULL);
+            if (rc != 0)
+                break;
+            rc = rmdir(pathbuf);
+        }
+        else {
+            rc = unlink(pathbuf);
+        }
+        if (rc != 0) {
+            LOGI("Failed to remove %s: %s\n", pathbuf, strerror(errno));
+            break;
+        }
+    }
+    closedir(dp);
+    return rc;
+}
+
 int format_volume(const char* volume) {
     Volume* v = volume_for_path(volume);
     if (v == NULL) {
@@ -181,6 +221,20 @@ int format_volume(const char* volume) {
     if (strcmp(v->mount_point, volume) != 0) {
         LOGE("can't give path \"%s\" to format_volume\n", volume);
         return -1;
+    }
+    
+    /*
+    We don't want to erase /cache/carbonrecovery...
+    so we do an rmtree_except instead of reformat
+    */
+    if (strcmp(volume, "/cache") == 0) {
+        if (ensure_path_mounted("/cache") == 0) {
+            LOGI("Preserving recovery files...\n");
+            int rc = rmtree_except("/cache", "recovery");
+            ensure_path_unmounted(volume);
+            return rc;
+        }
+        LOGI("format_volume failed to mount /cache, formatting instead\n");
     }
 
     if (ensure_path_unmounted(volume) != 0) {
