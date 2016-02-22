@@ -52,10 +52,6 @@
 #include "fuse_sideload.h"
 #include "fuse_sdcard_provider.h"
 
-extern "C" {
-    #include "recovery_cmds.h"
-}
-
 struct selabel_handle *sehandle;
 
 static const struct option OPTIONS[] = {
@@ -1000,16 +996,6 @@ load_locale_from_cache() {
     }
 }
 
-static const char *key_src = "/data/misc/adb/adb_keys";
-static const char *key_dest = "/adb_keys";
-
-static void setup_adbd() {
-    property_set("ro.adb.secure", "0");
-    
-    // Trigger (re)start of adbd
-    property_set("service.adb.root", "1");
-}
-
 static RecoveryUI* gCurrentUI = NULL;
 
 void
@@ -1028,8 +1014,6 @@ ui_print(const char* format, ...) {
     }
 }
 
-extern "C" int toybox_driver(int argc, char **argv);
-
 int
 main(int argc, char **argv) {
     // If this binary is started with the single argument "--adbd",
@@ -1043,34 +1027,6 @@ main(int argc, char **argv) {
         adb_main(0, DEFAULT_ADB_PORT);
         return 0;
     }
-    
-    // Handle alternative invocations
-    char* command = argv[0];
-    char* stripped = strrchr(argv[0], '/');
-    if (stripped) { command = stripped + 1; }
-    
-    if (strcmp(command, "recovery") != 0) {
-        struct recovery_cmd cmd = get_command(command);
-        if (cmd.name) { return cmd.main_func(argc, argv); }
-        
-        if (!strcmp(command, "setup_adbd")) {
-            load_volume_table();
-            setup_adbd();
-            return 0;
-        }
-        if (strstr(argv[0], "start")) {
-            property_set("ctl.start", argv[1]);
-        }
-        if (strstr(argv[0], "stop")) {
-            property_set("ctl.stop", argv[1]);
-            return 0;
-        }
-        return toybox_driver(argc, argv);
-    }
-    
-    // Clear umask for packages that copy files out to /tmp and then over
-    // to /system without properly setting all permissions (eg. gapps).
-    umask(0);
 
     time_t start = time(NULL);
 

@@ -42,13 +42,7 @@ LOCAL_SRC_FILES := \
     screen_ui.cpp \
     ui.cpp \
     verifier.cpp \
-    wear_ui.cpp
-
-# External tools
-LOCAL_SRC_FILES += \
-    ../../system/core/toolbox/newfs_msdos.c \
-    ../../system/core/toolbox/start.c \
-    ../../system/core/toolbox/stop.c
+    wear_ui.cpp \
 
 LOCAL_MODULE := recovery
 
@@ -72,14 +66,11 @@ LOCAL_C_INCLUDES += \
 LOCAL_STATIC_LIBRARIES := \
     libext4_utils_static \
     libsparse_static \
-    libreboot_static \
     libminzip \
     libz \
     libmtdutils \
     libmincrypt \
     libminadbd \
-    libtoybox_driver \
-    libmksh_static \
     libfusesideload \
     libminui \
     libpng \
@@ -108,46 +99,7 @@ else
   LOCAL_STATIC_LIBRARIES += $(TARGET_RECOVERY_UI_LIB)
 endif
 
-TOYBOX_INSTLIST := $(HOST_OUT_EXECUTABLES)/toybox-instlist
-
-# Set up the static symlinks
-RECOVERY_TOOLS := \
-    reboot setup_adbd sh start stop toybox
-LOCAL_POST_INSTALL_CMD := \
-	$(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf recovery $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);)
-
-ifneq ($(TARGET_RECOVERY_DEVICE_MODULES),)
-    LOCAL_ADDITIONAL_DEPENDENCIES += $(TARGET_RECOVERY_DEVICE_MODULES)
-endif
-
 include $(BUILD_EXECUTABLE)
-
-# Run toybox-instlist and generate the rest of the symlinks
-toybox_recovery_links: $(TOYBOX_INSTLIST)
-toybox_recovery_links: TOY_LIST=$(shell $(TOYBOX_INSTLIST))
-toybox_recovery_links: TOYBOX_BINARY := $(TARGET_RECOVERY_ROOT_OUT)/sbin/toybox
-toybox_recovery_links:
-	@echo -e ${CL_CYN}"Generate Toybox links:"${CL_RST} $(TOY_LIST)
-	@mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/sbin
-	$(hide) $(foreach t,$(TOY_LIST),ln -sf toybox $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(t);)
-
-# mkshrc
-include $(CLEAR_VARS)
-LOCAL_MODULE := recovery_mkshrc
-LOCAL_MODULE_TAGS := optional
-LOCAL_MODULE_CLASS := ETC
-LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc
-LOCAL_SRC_FILES := etc/mkshrc
-LOCAL_MODULE_STEM := mkshrc
-include $(BUILD_PREBUILT)
-
-# Reboot static library
-include $(CLEAR_VARS)
-LOCAL_MODULE := libreboot_static
-LOCAL_MODULE_TAGS := optional
-LOCAL_CFLAGS := -Dmain=reboot_main
-LOCAL_SRC_FILES := ../../system/core/reboot/reboot.c
-include $(BUILD_STATIC_LIBRARY)
 
 # All the APIs for testing
 include $(CLEAR_VARS)
@@ -187,5 +139,4 @@ include $(LOCAL_PATH)/minui/Android.mk \
     $(LOCAL_PATH)/edify/Android.mk \
     $(LOCAL_PATH)/uncrypt/Android.mk \
     $(LOCAL_PATH)/updater/Android.mk \
-    $(LOCAL_PATH)/applypatch/Android.mk \
-    $(LOCAL_PATH)/carbon_mksh/Android.mk
+    $(LOCAL_PATH)/applypatch/Android.mk
