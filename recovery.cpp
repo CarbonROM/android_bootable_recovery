@@ -763,8 +763,8 @@ static char* browse_directory(const char* path, Device* device) {
     return result;
 }
 
-static bool yes_no(Device* device, const char* question1, const char* question2) {
-    const char* headers[] = { question1, question2, NULL };
+static bool yes_no(Device* device, const char* question) {
+    const char* headers[] = { question, NULL };
     const char* items[] = { " No", " Yes", NULL };
 
     int chosen_item = get_menu_selection(headers, items, 1, 0, device);
@@ -773,7 +773,7 @@ static bool yes_no(Device* device, const char* question1, const char* question2)
 
 // Return true on success.
 static bool wipe_data(int should_confirm, Device* device) {
-    if (should_confirm && !yes_no(device, "Wipe all user data?", "  THIS CAN NOT BE UNDONE!")) {
+    if (should_confirm && !yes_no(device, "Wipe all user data? THIS CAN NOT BE UNDONE!")) {
         return false;
     }
 
@@ -791,7 +791,7 @@ static bool wipe_data(int should_confirm, Device* device) {
 
 // Return true on success.
 static bool wipe_cache(bool should_confirm, Device* device) {
-    if (should_confirm && !yes_no(device, "Wipe cache?", "  THIS CAN NOT BE UNDONE!")) {
+    if (should_confirm && !yes_no(device, "Wipe cache? THIS CAN NOT BE UNDONE!")) {
         return false;
     }
 
