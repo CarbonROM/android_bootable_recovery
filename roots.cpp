@@ -227,7 +227,7 @@ int format_volume(const char* volume) {
     We don't want to erase /cache/carbonrecovery...
     so we do an rmtree_except instead of reformat
     */
-    if (strcmp(volume, "/cache") == 0) {
+    /*if (strcmp(volume, "/cache") == 0) {
         if (ensure_path_mounted("/cache") == 0) {
             LOGI("Preserving recovery files...\n");
             int rc = rmtree_except("/cache", "recovery");
@@ -235,7 +235,7 @@ int format_volume(const char* volume) {
             return rc;
         }
         LOGI("format_volume failed to mount /cache, formatting instead\n");
-    }
+    }*/
 
     if (ensure_path_unmounted(volume) != 0) {
         LOGE("format_volume failed to unmount \"%s\"\n", v->mount_point);
