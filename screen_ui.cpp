@@ -39,6 +39,10 @@
 #include "screen_ui.h"
 #include "ui.h"
 
+#ifndef SEPARATOR_COLOR
+#define SEPARATOR_COLOR 160, 160, 160, 255
+#endif
+
 // Return the current time as a double (including fractions of a second).
 static double now() {
     struct timeval tv;
@@ -268,6 +272,10 @@ void ScreenRecoveryUI::draw_menu_item(int textrow, const char *text, int selecte
         SetColor(MENU);
         gr_text(4, (textrow+1) * char_height_ - 1, text, 0);
     }
+    
+    // Menu item separator
+    gr_color(SEPARATOR_COLOR);
+    gr_fill(0, (textrow+3)*char_height_-1, gr_fb_width(), (textrow+3)*char_height_+1);
 }
 
 void ScreenRecoveryUI::draw_dialog()
