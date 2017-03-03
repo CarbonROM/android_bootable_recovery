@@ -35,6 +35,20 @@
 #include "minui.h"
 #include "graphics.h"
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+#endif
+
+typedef struct {
+    char        name[80];
+    GRFont*     font;
+} font_item;
+
+static font_item gr_fonts[] = {
+    { "menu", NULL },
+    { "log", NULL },
+};
+
 static GRFont* gr_font = NULL;
 static minui_backend* gr_backend = NULL;
 
@@ -226,6 +240,17 @@ void gr_fill(int x1, int y1, int x2, int y2)
     }
 }
 
+void gr_set_font(const char* name)
+{
+    unsigned int idx;
+    for (idx = 0; idx < ARRAY_SIZE(gr_fonts); ++idx) {
+        if (strcmp(name, gr_fonts[idx].name) == 0) {
+            gr_font = gr_fonts[idx].font;
+            break;
+        }
+    }
+}
+
 void gr_blit(GRSurface* source, int sx, int sy, int w, int h, int dx, int dy) {
     if (source == NULL) return;
 
@@ -287,9 +312,14 @@ int gr_init_font(const char* name, GRFont** dest) {
     return 0;
 }
 
-static void gr_init_font(void)
+static void gr_init_one_font(int idx)
 {
-    int res = gr_init_font("font", &gr_font);
+    char name[80];
+    GRFont* gr_font = reinterpret_cast<GRFont*>(calloc(sizeof(*gr_font), 1));
+    snprintf(name, sizeof(name), "font_%s", gr_fonts[idx].name);
+    gr_fonts[idx].font = gr_font;
+
+    int res = gr_init_font(name, &gr_font);
     if (res == 0) {
         return;
     }
@@ -317,6 +347,15 @@ static void gr_init_font(void)
 
     gr_font->char_width = font.char_width;
     gr_font->char_height = font.char_height;
+}
+
+static void gr_init_font()
+{
+    unsigned int idx;
+    for (idx = 0; idx < ARRAY_SIZE(gr_fonts); ++idx) {
+        gr_init_one_font(idx);
+    }
+    gr_font = gr_fonts[0].font;
 }
 
 #if 0
