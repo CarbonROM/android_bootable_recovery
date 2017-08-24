@@ -609,7 +609,7 @@ Value* ShowProgressFn(const char* name, State* state,
 //   Example: rename("system/app/Hangouts/Hangouts.apk", "system/priv-app/Hangouts/Hangouts.apk")
 Value* RenameFn(const char* name, State* state, const std::vector<std::unique_ptr<Expr>>& argv) {
   if (argv.size() != 2) {
-    return ErrorAbort(state, kArgsParsingFailure, "%s() expects 2 args, got %d", name, argv.size());
+    return ErrorAbort(state, kArgsParsingFailure, "%s() expects 2 args, got %d", name, (int)argv.size());
   }
 
   std::vector<std::string> args;
@@ -708,7 +708,7 @@ Value* GetPropFn(const char* name, State* state, const std::vector<std::unique_p
 //   before creating symlinks.
 Value* SymlinkFn(const char* name, State* state, const std::vector<std::unique_ptr<Expr>>& argv) {
   if (argv.empty()) {
-    return ErrorAbort(state, kArgsParsingFailure, "%s() expects 1+ args, got %d", name, argv.size());
+    return ErrorAbort(state, kArgsParsingFailure, "%s() expects 1+ args, got %d", name, (int)argv.size());
   }
   std::string target;
   if (!Evaluate(state, argv[0], &target)) {
@@ -950,7 +950,7 @@ static int do_SetMetadataRecursive(const char* filename, const struct stat* stat
 static Value* SetMetadataFn(const char* name, State* state, const std::vector<std::unique_ptr<Expr>>& argv) {
   if ((argv.size() % 2) != 1) {
     return ErrorAbort(state, kArgsParsingFailure, "%s() expects an odd number of arguments, got %d",
-                      name, argv.size());
+                      name, (int)argv.size());
   }
 
   std::vector<std::string> args;
