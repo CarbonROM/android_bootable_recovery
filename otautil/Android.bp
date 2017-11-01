@@ -20,6 +20,7 @@ cc_library_static {
     srcs: [
         "SysUtil.cpp",
         "DirUtil.cpp",
+        "ZipUtil.cpp",
         "ThermalUtil.cpp",
         "cache_location.cpp",
         "rangeset.cpp",

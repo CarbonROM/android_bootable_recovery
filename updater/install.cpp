@@ -62,6 +62,7 @@
 #include "otautil/DirUtil.h"
 #include "otautil/error_code.h"
 #include "otautil/print_sha1.h"
+#include "otautil/ZipUtil.h"
 #include "updater/updater.h"
 
 // Send over the buffer to recovery though the command pipe.
@@ -687,6 +688,36 @@ Value* SetProgressFn(const char* name, State* state,
   fprintf(ui->cmd_pipe, "set_progress %f\n", frac);
 
   return StringValue(frac_str);
+}
+
+// package_extract_dir(package_dir, dest_dir)
+//   Extracts all files from the package underneath package_dir and writes them to the
+//   corresponding tree beneath dest_dir. Any existing files are overwritten.
+//   Example: package_extract_dir("system", "/system")
+//
+//   Note: package_dir needs to be a relative path; dest_dir needs to be an absolute path.
+Value* PackageExtractDirFn(const char* name, State* state,
+                           const std::vector<std::unique_ptr<Expr>>&argv) {
+  if (argv.size() != 2) {
+    return ErrorAbort(state, kArgsParsingFailure, "%s() expects 2 args, got %zu", name,
+                      argv.size());
+  }
+
+  std::vector<std::string> args;
+  if (!ReadArgs(state, argv, &args)) {
+    return ErrorAbort(state, kArgsParsingFailure, "%s() Failed to parse the argument(s)", name);
+  }
+  const std::string& zip_path = args[0];
+  const std::string& dest_path = args[1];
+
+  ZipArchiveHandle za = static_cast<UpdaterInfo*>(state->cookie)->package_zip;
+
+  // To create a consistent system image, never use the clock for timestamps.
+  constexpr struct utimbuf timestamp = { 1217592000, 1217592000 };  // 8/1/2008 default
+
+  bool success = ExtractPackageRecursive(za, zip_path, dest_path, &timestamp, sehandle);
+
+  return StringValue(success ? "t" : "");
 }
 
 Value* GetPropFn(const char* name, State* state, const std::vector<std::unique_ptr<Expr>>& argv) {
@@ -1362,6 +1393,7 @@ void RegisterInstallFunctions() {
   RegisterFunction("set_progress", SetProgressFn);
   RegisterFunction("delete", DeleteFn);
   RegisterFunction("delete_recursive", DeleteFn);
+  RegisterFunction("package_extract_dir", PackageExtractDirFn);
   RegisterFunction("package_extract_file", PackageExtractFileFn);
   RegisterFunction("symlink", SymlinkFn);
 
