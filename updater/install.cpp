@@ -1001,8 +1001,8 @@ static int ApplyParsedPerms(State* state, const char* filename, const struct sta
 static struct perm_parsed_args recursive_parsed_args;
 static State* recursive_state;
 
-static int do_SetMetadataRecursive(const char* filename, const struct stat* statptr, int fileflags,
-                                   struct FTW* pfwt) {
+static int do_SetMetadataRecursive(const char* filename, const struct stat* statptr, int /*fileflags*/,
+                                   struct FTW* /*pfwt*/)  {
   return ApplyParsedPerms(recursive_state, filename, statptr, recursive_parsed_args);
 }
 
