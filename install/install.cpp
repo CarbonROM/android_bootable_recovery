@@ -70,6 +70,7 @@ static constexpr int VERIFICATION_PROGRESS_TIME = 60;
 static constexpr float VERIFICATION_PROGRESS_FRACTION = 0.25;
 // The charater used to separate dynamic fingerprints. e.x. sargo|aosp-sargo
 static const char* FINGERPRING_SEPARATOR = "|";
+static const char* CUSTOM_FINGERPRINT_SEPARATOR = ",";
 static std::condition_variable finish_log_temperature;
 static bool isInStringList(const std::string& target_token, const std::string& str_list,
                            const std::string& deliminator);
@@ -201,10 +202,16 @@ bool CheckPackageMetadata(const std::map<std::string, std::string>& metadata, Ot
     return false;
   }
 
+  // We allow the package to carry multiple product names split by ",";
+  // e.g. pre-device=device1,device2,device3 ... We will fail the
+  // verification if the device's name doesn't match any of these carried names.
   auto device = android::base::GetProperty("ro.product.device", "");
   auto pkg_device = get_value(metadata, "pre-device");
   // device name can be a | separated list, so need to check
-  if (pkg_device.empty() || !isInStringList(device, pkg_device, FINGERPRING_SEPARATOR)) {
+  if (
+      pkg_device.empty()
+      || !isInStringList(device, pkg_device, FINGERPRING_SEPARATOR)
+      || !isInStringList(device, pkg_device, CUSTOM_FINGERPRINT_SEPARATOR)) {
     LOG(ERROR) << "Package is for product " << pkg_device << " but expected " << device;
     return false;
   }
