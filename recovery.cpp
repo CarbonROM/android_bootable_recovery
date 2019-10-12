@@ -551,6 +551,17 @@ static Device::BuiltinAction prompt_and_wait(Device* device, int status) {
         }
         break;
 
+
+      case Device::WIPE_DATA_WITHOUT_SD: {
+        save_current_log = true;
+        std::function<bool()> confirm_func = [&device]() {
+          return yes_no(device, "Wipe Data without wiping sdcard?", "  THIS CAN NOT BE UNDONE!");
+        };
+        WipeDataWithoutSD(device, ui, ui->IsTextVisible() ? confirm_func : nullptr);
+        if (!ui->IsTextVisible()) return Device::NO_ACTION;
+        break;
+      }
+
       case Device::WIPE_CACHE: {
         save_current_log = true;
         std::function<bool()> confirm_func = [&device]() {
@@ -772,6 +783,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
     { "wipe_ab", no_argument, nullptr, 0 },
     { "wipe_cache", no_argument, nullptr, 0 },
     { "wipe_data", no_argument, nullptr, 0 },
+    { "wipe_data_without_sd", no_argument, nullptr, 0 },
     { "wipe_package_size", required_argument, nullptr, 0 },
     { nullptr, 0, nullptr, 0 },
   };
@@ -781,6 +793,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
   bool should_prompt_and_wipe_data = false;
   bool should_wipe_cache = false;
   bool should_wipe_ab = false;
+  bool should_wipe_data_without_sd = false;
   size_t wipe_package_size = 0;
   bool sideload = false;
   bool sideload_auto_reboot = false;
@@ -839,6 +852,8 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
           should_wipe_cache = true;
         } else if (option == "wipe_data") {
           should_wipe_data = true;
+        } else if (option == "wipe_data_without_sd") {
+          should_wipe_data_without_sd = true;
         } else if (option == "wipe_package_size") {
           android::base::ParseUint(optarg, &wipe_package_size);
         }
@@ -946,6 +961,11 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
     save_current_log = true;
     bool convert_fbe = reason && strcmp(reason, "convert_fbe") == 0;
     if (!WipeData(device, convert_fbe)) {
+      status = INSTALL_ERROR;
+    }
+  } else if (should_wipe_data_without_sd) {
+    save_current_log = true;
+    if (!WipeDataWithoutSD(device, ui, nullptr)) {
       status = INSTALL_ERROR;
     }
   } else if (should_prompt_and_wipe_data) {

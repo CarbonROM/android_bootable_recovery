@@ -136,3 +136,22 @@ bool WipeSystem(RecoveryUI* ui, const std::function<bool()>& confirm_func) {
   ui->Print("System wipe %s.\n", success ? "complete" : "failed");
   return success;
 }
+
+bool WipeDataWithoutSD(Device* device, RecoveryUI* ui, const std::function<bool()>& confirm_func) {
+  bool has_data = volume_for_mount_point("/data") != nullptr;
+  if (!has_data) {
+    ui->Print("No /data partition found.\n");
+    return false;
+  }
+  ui->Print("/data partition found.\n");
+  if (confirm_func && !confirm_func()) {
+    return false;
+  }
+  ui->Print("\n-- Wiping data without wiping sdcard...\n");
+  bool success = device->PreWipeData();
+  if (success) {
+    ui->Print("Data prewipe %s.\n", success ? "complete" : "failed");
+  }
+  ui->Print("Data wipe without wiping sdcard  %s.\n", success ? "complete" : "failed");
+  return success;
+}
