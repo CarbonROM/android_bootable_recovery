@@ -25,6 +25,7 @@
 #include <ziparchive/zip_archive.h>
 
 #include "package.h"
+#include "recovery_ui/device.h"
 #include "recovery_ui/ui.h"
 
 enum InstallResult {
@@ -74,3 +75,6 @@ int CheckPackageMetadata(const std::map<std::string, std::string>& metadata, Ota
 // Ensures the path to the update package is mounted. Also set the |should_use_fuse| to true if the
 // package stays on a removable media.
 bool SetupPackageMount(const std::string& package_path, bool* should_use_fuse);
+
+// Defined in recovery.cpp, just declare it and it will eventually link fine.
+bool ask_to_continue_unverified(Device* device);
