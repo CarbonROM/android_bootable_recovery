@@ -822,7 +822,7 @@ void ScreenRecoveryUI::draw_menu_and_text_buffer_locked(
   int y = margin_height_;
 
   if (menu_) {
-    auto& logo = fastbootd_logo_enabled_ ? fastbootd_logo_ : lineage_logo_;
+    auto& logo = fastbootd_logo_enabled_ ? fastbootd_logo_ : carbon_logo_;
     auto logo_width = gr_get_width(logo.get());
     auto logo_height = gr_get_height(logo.get());
     auto centered_x = ScreenWidth() / 2 - logo_width / 2;
@@ -1034,7 +1034,7 @@ bool ScreenRecoveryUI::Init(const std::string& locale) {
   no_command_text_ = LoadLocalizedBitmap("no_command_text");
   error_text_ = LoadLocalizedBitmap("error_text");
 
-  lineage_logo_ = LoadBitmap("logo_image");
+  carbon_logo_ = LoadBitmap("logo_image");
   back_icon_ = LoadBitmap("ic_back");
   back_icon_sel_ = LoadBitmap("ic_back_sel");
   if (android::base::GetBoolProperty("ro.boot.dynamic_partitions", false) ||
@@ -1310,7 +1310,7 @@ std::unique_ptr<Menu> ScreenRecoveryUI::CreateMenu(const std::vector<std::string
                                                    size_t initial_selection) const {
   int menu_char_width = MenuCharWidth();
   int menu_char_height = MenuCharHeight();
-  int menu_rows = (ScreenHeight() - margin_height_*2 - gr_get_height(lineage_logo_.get())
+  int menu_rows = (ScreenHeight() - margin_height_*2 - gr_get_height(carbon_logo_.get())
                   - menu_char_height*title_lines_.size()) / MenuItemHeight() - text_headers.size();
   int menu_cols = (ScreenWidth() - margin_width_*2 - kMenuIndent) / menu_char_width;
   return std::make_unique<TextMenu>(scrollable_menu_, menu_rows, menu_cols, text_headers, text_items,
@@ -1336,8 +1336,8 @@ int ScreenRecoveryUI::SelectMenu(const Point& point) {
   if (menu_) {
     if (!menu_->IsMain()) {
       // Back arrow hitbox
-      const static int logo_width = gr_get_width(lineage_logo_.get());
-      const static int logo_height = gr_get_height(lineage_logo_.get());
+      const static int logo_width = gr_get_width(carbon_logo_.get());
+      const static int logo_height = gr_get_height(carbon_logo_.get());
       const static int icon_w = gr_get_width(back_icon_.get());
       const static int icon_h = gr_get_height(back_icon_.get());
       const static int centered_x = ScreenWidth() / 2 - logo_width / 2;
