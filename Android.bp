@@ -67,10 +67,10 @@ cc_defaults {
         "libfs_mgr",
         "liblog",
         "libziparchive",
+        "libvolume_manager",
     ],
 
     static_libs: [
-        "libc++fs",
         "libinstall",
         "librecovery_fastboot",
         "libminui",
@@ -96,7 +96,6 @@ cc_library_static {
     ],
 
     shared_libs: [
-        "libfusesideload",
         "librecovery_ui",
     ],
 }
@@ -112,6 +111,7 @@ cc_binary {
 
     srcs: [
         "recovery_main.cpp",
+        "volclient.cpp",
     ],
 
     shared_libs: [

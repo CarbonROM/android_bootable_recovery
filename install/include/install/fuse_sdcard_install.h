@@ -18,6 +18,8 @@
 
 #include "recovery_ui/device.h"
 #include "recovery_ui/ui.h"
+#include <volume_manager/VolumeManager.h>
 
-int ApplyFromSdcard(Device* device, RecoveryUI* ui,
-                    const std::function<bool(Device*)>& ask_to_continue_unverified_fn);
+using android::volmgr::VolumeInfo;
+
+int ApplyFromStorage(Device* device, VolumeInfo& vi, RecoveryUI* ui);
