@@ -36,6 +36,17 @@ on init
     chown root shell /tmp
     chmod 0775 /tmp
 
+    mkdir /storage 0050 root sdcard_r
+    mount tmpfs tmpfs /storage mode=0050,uid=0,gid=1028
+
+    mkdir /mnt 0775 root system
+
+    # See storage config details at http://source.android.com/tech/storage/
+    mkdir /mnt/shell 0700 shell shell
+
+    # Directory for staging bindmounts
+    mkdir /mnt/staging 0700 root root
+
     write /proc/sys/kernel/panic_on_oops 1
     write /proc/sys/vm/max_map_count 1000000
 
@@ -103,7 +114,7 @@ service fastbootd /system/bin/fastbootd
     seclabel u:r:fastbootd:s0
 
 # Restart adbd so it can run as root
-on property:sys.usb.config=adb && property:lineage.service.adb.root=1
+on property:sys.usb.config=adb && property:service.adb.root=1
     restart adbd
 
 on fs && property:sys.usb.configfs=1
@@ -141,7 +152,7 @@ on property:sys.usb.config=fastboot
 
 on property:sys.usb.config=none && property:sys.usb.configfs=0
     stop adbd
-    stop fastboot
+    stop fastbootd
     write /sys/class/android_usb/android0/enable 0
     setprop sys.usb.state ${sys.usb.config}
 

@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,7 @@
 #include <bootloader_message/bootloader_message.h>
 #include <cutils/properties.h> /* for property_list */
 #include <healthhalutils/HealthHalUtils.h>
+#include <volume_manager/VolumeManager.h>
 #include <ziparchive/zip_archive.h>
 
 #include "common.h"
@@ -63,6 +65,10 @@
 #include "otautil/sysutil.h"
 #include "recovery_ui/screen_ui.h"
 #include "recovery_ui/ui.h"
+#include "volclient.h"
+
+using android::volmgr::VolumeManager;
+using android::volmgr::VolumeInfo;
 
 static constexpr const char* COMMAND_FILE = "/cache/recovery/command";
 static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
@@ -178,7 +184,7 @@ static bool yes_no(Device* device, const char* question1, const char* question2)
   return (chosen_item == 1);
 }
 
-static bool ask_to_continue_unverified_fn(Device* device) {
+bool ask_to_continue_unverified(Device* device) {
   if (get_build_type() == "user") {
     return false;
   } else {
@@ -187,15 +193,69 @@ static bool ask_to_continue_unverified_fn(Device* device) {
   }
 }
 
-static bool ask_to_wipe_data(Device* device) {
-  std::vector<std::string> headers{ "Wipe all user data?", "  THIS CAN NOT BE UNDONE!" };
-  std::vector<std::string> items{ " Cancel", " Factory data reset" };
+bool ask_to_continue_downgrade(Device* device) {
+  if (get_build_type() == "user") {
+    return false;
+  } else {
+    ui->SetProgressType(RecoveryUI::EMPTY);
+    return yes_no(device, "This package will downgrade your system", "Install anyway?");
+  }
+}
 
-  size_t chosen_item = ui->ShowPromptWipeDataConfirmationMenu(
-      headers, items,
+static bool ask_to_wipe_data(Device* device) {
+  std::vector<std::string> headers{ "Format user data?", "This includes internal storage.", "THIS CANNOT BE UNDONE!" };
+  std::vector<std::string> items{ " Cancel", " Format data" };
+
+  size_t chosen_item = ui->ShowMenu(
+      headers, items, 0, true,
       std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2));
 
   return (chosen_item == 1);
+}
+
+static int apply_update_menu(Device* device, RecoveryUI* ui, Device::BuiltinAction* reboot_action){
+  std::vector<std::string> headers{ "Apply update" };
+  std::vector<std::string> items;
+
+  const int item_sideload = 0;
+  std::vector<VolumeInfo> volumes;
+
+  int status = INSTALL_ERROR;
+
+  for (;;) {
+    items.clear();
+    items.push_back("Apply from ADB");
+    VolumeManager::Instance()->getVolumeInfo(volumes);
+    for (auto vol = volumes.begin(); vol != volumes.end(); /* empty */) {
+      if (!vol->mMountable) {
+        vol = volumes.erase(vol);
+        continue;
+      }
+      items.push_back("Choose from " + vol->mLabel);
+      ++vol;
+    }
+
+    int chosen = ui->ShowMenu(
+      headers, items, 0, false,
+      std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2),
+      true /* refreshable */);
+    if (chosen == Device::kRefresh) {
+      continue;
+    }
+    if (chosen == Device::kGoBack) {
+      break;
+    }
+    if (chosen == static_cast<size_t>(RecoveryUI::KeyError::INTERRUPTED)) {
+      return Device::KEY_INTERRUPTED;
+    }
+
+    if (chosen == item_sideload) {
+      status = ApplyFromAdb(device, false /* rescue_mode */, reboot_action);
+    } else {
+      status = ApplyFromStorage(device, volumes[chosen - 1], ui);
+    }
+  }
+  return status;
 }
 
 static InstallResult prompt_and_wipe_data(Device* device) {
@@ -507,16 +567,18 @@ static Device::BuiltinAction prompt_and_wait(Device* device, int status) {
     }
     ui->SetProgressType(RecoveryUI::EMPTY);
 
+change_menu:
     size_t chosen_item = ui->ShowMenu(
-        {}, device->GetMenuItems(), 0, false,
+        device->GetMenuHeaders(), device->GetMenuItems(), 0, false,
         std::bind(&Device::HandleMenuKey, device, std::placeholders::_1, std::placeholders::_2));
     // Handle Interrupt key
     if (chosen_item == static_cast<size_t>(RecoveryUI::KeyError::INTERRUPTED)) {
       return Device::KEY_INTERRUPTED;
     }
-    // We are already in the main menu
+
     if (chosen_item == Device::kGoBack || chosen_item == Device::kGoHome) {
-      continue;
+      device->GoHome();
+      goto change_menu;
     }
 
     // Device-specific code may take some action here. It may return one of the core actions
@@ -527,6 +589,11 @@ static Device::BuiltinAction prompt_and_wait(Device* device, int status) {
             : device->InvokeMenuItem(chosen_item);
 
     switch (chosen_action) {
+      case Device::MENU_BASE:
+      case Device::MENU_WIPE:
+      case Device::MENU_ADVANCED:
+        goto change_menu;
+
       case Device::NO_ACTION:
         break;
 
@@ -555,7 +622,7 @@ static Device::BuiltinAction prompt_and_wait(Device* device, int status) {
       case Device::WIPE_CACHE: {
         save_current_log = true;
         std::function<bool()> confirm_func = [&device]() {
-          return yes_no(device, "Wipe cache?", "  THIS CAN NOT BE UNDONE!");
+          return yes_no(device, "Format cache?", "  THIS CAN NOT BE UNDONE!");
         };
         WipeCache(ui, ui->IsTextVisible() ? confirm_func : nullptr);
         if (!ui->IsTextVisible()) return Device::NO_ACTION;
@@ -565,37 +632,31 @@ static Device::BuiltinAction prompt_and_wait(Device* device, int status) {
       case Device::WIPE_SYSTEM: {
         save_current_log = true;
         std::function<bool()> confirm_func = [&device]() {
-          return yes_no(device, "Wipe system?", "  THIS CAN NOT BE UNDONE!");
+          return yes_no(device, "Format system?", "  THIS CAN NOT BE UNDONE!");
         };
         WipeSystem(ui, ui->IsTextVisible() ? confirm_func : nullptr);
         if (!ui->IsTextVisible()) return Device::NO_ACTION;
         break;
       }
 
-      case Device::APPLY_ADB_SIDELOAD:
-      case Device::APPLY_SDCARD:
+      case Device::APPLY_UPDATE:
       case Device::ENTER_RESCUE: {
         save_current_log = true;
 
-        bool adb = true;
         Device::BuiltinAction reboot_action;
         if (chosen_action == Device::ENTER_RESCUE) {
           // Switch to graphics screen.
           ui->ShowText(false);
           status = ApplyFromAdb(device, true /* rescue_mode */, &reboot_action);
-        } else if (chosen_action == Device::APPLY_ADB_SIDELOAD) {
-          status = ApplyFromAdb(device, false /* rescue_mode */, &reboot_action,
-                                ask_to_continue_unverified_fn);
-        } else {
-          adb = false;
-          status = ApplyFromSdcard(device, ui, ask_to_continue_unverified_fn);
+        } else if (chosen_action == Device::APPLY_UPDATE) {
+          status = apply_update_menu(device, ui, &reboot_action);
         }
 
-        ui->Print("\nInstall from %s completed with status %d.\n", adb ? "ADB" : "SD card", status);
         if (status == INSTALL_REBOOT) {
           return reboot_action;
         }
 
+        ui->Print("\nInstall completed with status %d.\n", status);
         if (status != INSTALL_SUCCESS) {
           ui->SetBackground(RecoveryUI::ERROR);
           ui->Print("Installation aborted.\n");
@@ -608,6 +669,14 @@ static Device::BuiltinAction prompt_and_wait(Device* device, int status) {
 
       case Device::VIEW_RECOVERY_LOGS:
         choose_recovery_file(device);
+        break;
+
+      case Device::ENABLE_ADB:
+        android::base::SetProperty("ro.adb.secure.recovery", "0");
+        android::base::SetProperty("ctl.restart", "adbd");
+        device->RemoveMenuItemForAction(Device::ENABLE_ADB);
+        device->GoHome();
+        ui->Print("Enabled ADB.\n");
         break;
 
       case Device::RUN_GRAPHICS_TEST:
@@ -855,6 +924,12 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
   printf("stage is [%s]\n", stage.c_str());
   printf("reason is [%s]\n", reason);
 
+  VolumeClient* volclient = new VolumeClient(device);
+  VolumeManager* volmgr = VolumeManager::Instance();
+  if (!volmgr->start(volclient, sehandle)) {
+    printf("Failed to start volume manager\n");
+  }
+
   // Set background string to "installing security update" for security update,
   // otherwise set it to "installing system update".
   ui->SetSystemUpdateText(security_update);
@@ -864,9 +939,22 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
     ui->SetStage(st_cur, st_max);
   }
 
-  std::vector<std::string> title_lines =
-      android::base::Split(android::base::GetProperty("ro.bootimage.build.fingerprint", ""), ":");
-  title_lines.insert(std::begin(title_lines), "Android Recovery");
+  // Extract the YYYYMMDD date from the full version string. Assume
+  // the first instance of "-[0-9]{8}-" (if any) has the desired date.
+  std::string ver = android::base::GetProperty("ro.carbon.version", "");
+  std::smatch ver_date_match;
+  std::regex_search(ver, ver_date_match, std::regex("-(\\d{8})-"));
+  std::string ver_date = ver_date_match.str(1);  // Empty if no match.
+
+  std::vector<std::string> title_lines = {
+    "Version " + android::base::GetProperty("ro.carbon.build.version", "(unknown)") +
+        " (" + ver_date + ")",
+  };
+  if (android::base::GetBoolProperty("ro.build.ab_update", false)) {
+    std::string slot = android::base::GetProperty("ro.boot.slot_suffix", "");
+    if (android::base::StartsWith(slot, "_")) slot.erase(0, 1);
+    title_lines.push_back("Active slot: " + slot);
+  }
   ui->SetTitle(title_lines);
 
   ui->ResetKeyInterruptStatus();
@@ -924,7 +1012,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
                      std::bind(&RecoveryUI::SetProgress, ui, std::placeholders::_1));
                  memory_package != nullptr) {
       status = install_package(update_package, should_wipe_cache, true, retry_count,
-                               true /* verify */, ui);
+                               true /* verify */, false /* allow_ab_downgrade */, ui);
       } else {
         // We may fail to memory map the package on 32 bit builds for packages with 2GiB+ size.
         // In such cases, we will try to install the package with fuse. This is not the default
@@ -999,8 +1087,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
     if (!sideload_auto_reboot) {
       ui->ShowText(true);
     }
-    status = ApplyFromAdb(device, false /* rescue_mode */, &next_action,
-                          !sideload_auto_reboot ? ask_to_continue_unverified_fn : nullptr);
+    status = ApplyFromAdb(device, false /* rescue_mode */, &next_action);
     ui->Print("\nInstall from ADB complete (status: %d).\n", status);
     if (sideload_auto_reboot) {
       status = INSTALL_REBOOT;
@@ -1050,6 +1137,12 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
 
   // Save logs and clean up before rebooting or shutting down.
   finish_recovery();
+
+  volmgr->unmountAll();
+  volmgr->stop();
+  delete volclient;
+
+  sync();
 
   return next_action;
 }

@@ -102,6 +102,42 @@ class RecoveryUI {
     INTERRUPTED = -2,
   };
 
+  enum EventType {
+    EXTRA,
+    KEY,
+    TOUCH,
+  };
+
+  class InputEvent {
+   public:
+    InputEvent() : type_(EventType::EXTRA), evt_({ 0 }) {
+      evt_.key = static_cast<int>(KeyError::TIMED_OUT);
+    }
+    explicit InputEvent(EventType type, KeyError key)
+        : type_(type), evt_({ static_cast<int>(key) }) {}
+    explicit InputEvent(int key) : type_(EventType::KEY), evt_({ key }) {}
+    explicit InputEvent(const Point& pos) : type_(EventType::TOUCH), evt_({ 0 }) {
+      evt_.pos = pos;
+    }
+
+    EventType type() const {
+      return type_;
+    }
+    int key() const {
+      return evt_.key;
+    }
+    const Point& pos() const {
+      return evt_.pos;
+    }
+
+   private:
+    EventType type_;
+    union {
+      int key;
+      Point pos;
+    } evt_;
+  };
+
   RecoveryUI();
 
   virtual ~RecoveryUI();
@@ -152,7 +188,7 @@ class RecoveryUI {
 
   // Waits for a key and return it. May return TIMED_OUT after timeout and
   // KeyError::INTERRUPTED on a key interrupt.
-  virtual int WaitKey();
+  virtual InputEvent WaitInputEvent();
 
   virtual void CancelWaitKey();
   // Wakes up the UI if it is waiting on key input, causing WaitKey to return KeyError::INTERRUPTED.
@@ -207,7 +243,8 @@ class RecoveryUI {
   // static_cast<size_t>(ERR_KEY_INTERTUPT) if interrupted, such as by InterruptKey().
   virtual size_t ShowMenu(const std::vector<std::string>& headers,
                           const std::vector<std::string>& items, size_t initial_selection,
-                          bool menu_only, const std::function<int(int, bool)>& key_handler) = 0;
+                          bool menu_only, const std::function<int(int, bool)>& key_handler,
+                          bool refreshable = false) = 0;
 
   // Displays the localized wipe data menu with pre-generated graphs. If there's an issue
   // with the graphs, falls back to use the backup string headers and items instead. The initial
@@ -221,6 +258,10 @@ class RecoveryUI {
   virtual size_t ShowPromptWipeDataConfirmationMenu(
       const std::vector<std::string>& backup_headers, const std::vector<std::string>& backup_items,
       const std::function<int(int, bool)>& key_handler) = 0;
+
+  virtual int MenuItemHeight() const {
+    return 1;
+  }
 
   // Set whether or not the fastbootd logo is displayed.
   void SetEnableFastbootdLogo(bool enable) {
@@ -237,8 +278,14 @@ class RecoveryUI {
     return key_interrupted_;
   }
 
+  // Notify of volume state change
+  void onVolumeChanged() {
+    EnqueueKey(KEY_REFRESH);
+  }
+
  protected:
   void EnqueueKey(int key_code);
+  void EnqueueTouch(const Point& pos);
 
   // The normal and dimmed brightness percentages (default: 50 and 25, which means 50% and 25% of
   // the max_brightness). Because the absolute values may vary across devices. These two values can
@@ -267,7 +314,10 @@ class RecoveryUI {
 
   void OnTouchDeviceDetected(int fd);
   void OnKeyDetected(int key_code);
-  void OnTouchEvent();
+  void CalibrateTouch(int fd);
+  void OnTouchPress();
+  void OnTouchTrack();
+  void OnTouchRelease();
   int OnInputEvent(int fd, uint32_t epevents);
   void ProcessKey(int key_code, int updown);
   void TimeKey(int key_code, int count);
@@ -277,15 +327,16 @@ class RecoveryUI {
   bool InitScreensaver();
   void SetScreensaverState(ScreensaverState state);
   // Key event input queue
-  std::mutex key_queue_mutex;
-  std::condition_variable key_queue_cond;
+  std::mutex event_queue_mutex;
+  std::condition_variable event_queue_cond;
   bool key_interrupted_;
-  int key_queue[256], key_queue_len;
-  char key_pressed[KEY_MAX + 1];  // under key_queue_mutex
-  int key_last_down;              // under key_queue_mutex
-  bool key_long_press;            // under key_queue_mutex
-  int key_down_count;             // under key_queue_mutex
-  bool enable_reboot;             // under key_queue_mutex
+  InputEvent event_queue[256];
+  int event_queue_len;
+  char key_pressed[KEY_MAX + 1];  // under event_queue_mutex
+  int key_last_down;              // under event_queue_mutex
+  bool key_long_press;            // under event_queue_mutex
+  int key_down_count;             // under event_queue_mutex
+  bool enable_reboot;             // under event_queue_mutex
   int rel_sum;
 
   int consecutive_power_keys;
@@ -297,6 +348,10 @@ class RecoveryUI {
   bool has_touch_screen;
 
   struct vkey_t {
+    bool inside(const Point& p) const {
+      return (p.x() >= min_.x() && p.x() < max_.x() && p.y() >= min_.y() && p.y() < max_.y());
+    }
+
     int keycode;
     Point min_;
     Point max_;
@@ -304,10 +359,15 @@ class RecoveryUI {
 
   // Touch event related variables. See the comments in RecoveryUI::OnInputEvent().
   int touch_slot_;
+  bool touch_finger_down_;
+  bool touch_saw_x_;
+  bool touch_saw_y_;
+  bool touch_reported_;
   Point touch_pos_;
   Point touch_start_;
-  bool touch_finger_down_;
-  bool touch_swiping_;
+  Point touch_track_;
+  Point touch_max_;
+  Point touch_min_;
   std::vector<vkey_t> virtual_keys_;
   bool is_bootreason_recovery_ui_;
 

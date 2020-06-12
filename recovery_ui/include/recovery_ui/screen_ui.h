@@ -37,6 +37,7 @@ enum class UIElement {
   MENU_SEL_BG,
   MENU_SEL_BG_ACTIVE,
   MENU_SEL_FG,
+  SCROLLBAR,
   LOG,
   TEXT_FILL,
   INFO
@@ -55,6 +56,9 @@ class DrawInterface {
 
   // Draws a horizontal rule at Y. Returns the offset it should be moving along Y-axis.
   virtual int DrawHorizontalRule(int y) const = 0;
+
+  // Draws a vertical line from y to y + height, on the right of the screen.
+  virtual void DrawScrollBar(int y, int height) const = 0;
 
   // Draws a line of text. Returns the offset it should be moving along Y-axis.
   virtual int DrawTextLine(int x, int y, const std::string& line, bool bold) const = 0;
@@ -76,6 +80,11 @@ class DrawInterface {
   // keeps symmetrical margins of 'x' at each end of a line. Returns the offset it should be moving
   // along Y-axis.
   virtual int DrawWrappedTextLines(int x, int y, const std::vector<std::string>& lines) const = 0;
+
+  virtual int MenuCharHeight() const = 0;
+  virtual int MenuCharWidth() const = 0;
+  virtual int MenuItemPadding() const = 0;
+  virtual int MenuItemHeight() const = 0;
 };
 
 // Interface for classes that maintain the menu selection and display.
@@ -83,19 +92,27 @@ class Menu {
  public:
   virtual ~Menu() = default;
   // Returns the current menu selection.
-  size_t selection() const;
+  int selection() const;
   // Sets the current selection to |sel|. Handle the overflow cases depending on if the menu is
   // scrollable.
   virtual int Select(int sel) = 0;
+  // Select by index within the currently visible items.
+  // Matches Select() if not scrollable
+  virtual int SelectVisible(int relative_sel) = 0;
+  // Scroll the menu by updown, if scrollable
+  virtual int Scroll(int updown) = 0;
   // Displays the menu headers on the screen at offset x, y
   virtual int DrawHeader(int x, int y) const = 0;
   // Iterates over the menu items and displays each of them at offset x, y.
   virtual int DrawItems(int x, int y, int screen_width, bool long_press) const = 0;
+  // Returns count of menu items.
+  virtual size_t ItemsCount() const = 0;
+  virtual bool IsMain() const = 0;
 
  protected:
   Menu(size_t initial_selection, const DrawInterface& draw_func);
   // Current menu selection.
-  size_t selection_;
+  int selection_;
   // Reference to the class that implements all the draw functions.
   const DrawInterface& draw_funcs_;
 };
@@ -110,15 +127,19 @@ class TextMenu : public Menu {
            size_t initial_selection, int char_height, const DrawInterface& draw_funcs);
 
   int Select(int sel) override;
+  int SelectVisible(int relative_sel) override;
+  int Scroll(int updown) override;
   int DrawHeader(int x, int y) const override;
   int DrawItems(int x, int y, int screen_width, bool long_press) const override;
+  size_t ItemsCount() const override;
+  bool IsMain() const override {
+    // Main menus have no headers
+    return text_headers_.size() == 0;
+  }
 
   bool scrollable() const {
     return scrollable_;
   }
-
-  // Returns count of menu items.
-  size_t ItemsCount() const;
 
   // Returns the index of the first menu item.
   size_t MenuStart() const;
@@ -127,7 +148,7 @@ class TextMenu : public Menu {
   size_t MenuEnd() const;
 
   // Menu example:
-  // info:                           Android Recovery
+  // info:                           Carbon Recovery
   //                                 ....
   // help messages:                  Swipe up/down to move
   //                                 Swipe left/right to select
@@ -171,8 +192,18 @@ class GraphicMenu : public Menu {
               size_t initial_selection, const DrawInterface& draw_funcs);
 
   int Select(int sel) override;
+  int SelectVisible(int sel) override {
+    return Select(sel);
+  }
+  int Scroll(int updown __unused) override {
+    return selection_;
+  };
   int DrawHeader(int x, int y) const override;
   int DrawItems(int x, int y, int screen_width, bool long_press) const override;
+  size_t ItemsCount() const override;
+  bool IsMain() const override {
+    return true;
+  }
 
   // Checks if all the header and items are valid GRSurface's; and that they can fit in the area
   // defined by |max_width| and |max_height|.
@@ -187,6 +218,51 @@ class GraphicMenu : public Menu {
   // Menu headers and items in graphic icons. These are the copies owned by the class instance.
   std::unique_ptr<GRSurface> graphic_headers_;
   std::vector<std::unique_ptr<GRSurface>> graphic_items_;
+};
+
+class MenuDrawFunctions : public DrawInterface {
+ public:
+  MenuDrawFunctions(const DrawInterface& wrappee);
+  void SetColor(UIElement e) const override {
+    wrappee_.SetColor(e);
+  }
+  void DrawHighlightBar(int x, int y, int width, int height) const override {
+    wrappee_.DrawHighlightBar(x, y, width, height);
+  };
+  void DrawScrollBar(int y, int height) const override {
+    wrappee_.DrawScrollBar(y, height);
+  }
+  int DrawHorizontalRule(int y) const override {
+    return wrappee_.DrawHorizontalRule(y);
+  }
+  void DrawSurface(const GRSurface* surface, int sx, int sy, int w, int h, int dx,
+                   int dy) const override {
+    wrappee_.DrawSurface(surface, sx, sy, w, h, dx, dy);
+  }
+  void DrawFill(int x, int y, int w, int h) const override {
+    wrappee_.DrawFill(x, y, w, h);
+  }
+  void DrawTextIcon(int x, int y, const GRSurface* surface) const override {
+    wrappee_.DrawTextIcon(x, y, surface);
+  }
+  int MenuCharHeight() const override {
+    return wrappee_.MenuCharHeight();
+  };
+  int MenuCharWidth() const override {
+    return wrappee_.MenuCharWidth();
+  };
+  int MenuItemPadding() const override {
+    return wrappee_.MenuItemPadding();
+  };
+  int MenuItemHeight() const override {
+    return wrappee_.MenuItemHeight();
+  };
+  int DrawTextLine(int x, int y, const std::string& line, bool bold) const override;
+  int DrawTextLines(int x, int y, const std::vector<std::string>& lines) const override;
+  int DrawWrappedTextLines(int x, int y, const std::vector<std::string>& lines) const override;
+
+ private:
+  const DrawInterface& wrappee_;
 };
 
 // Implementation of RecoveryUI appropriate for devices with a screen
@@ -224,7 +300,7 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   // menu display
   size_t ShowMenu(const std::vector<std::string>& headers, const std::vector<std::string>& items,
                   size_t initial_selection, bool menu_only,
-                  const std::function<int(int, bool)>& key_handler) override;
+                  const std::function<int(int, bool)>& key_handler, bool refreshable) override;
   void SetTitle(const std::vector<std::string>& lines) override;
 
   void KeyLongPress(int) override;
@@ -245,8 +321,12 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
       const std::vector<std::string>& backup_headers, const std::vector<std::string>& backup_items,
       const std::function<int(int, bool)>& key_handler) override;
 
+  int MenuItemHeight() const override {
+    return MenuCharHeight() + 2 * MenuItemPadding();
+  }
+
  protected:
-  static constexpr int kMenuIndent = 4;
+  static constexpr int kMenuIndent = 24;
 
   // The margin that we don't want to use for showing texts (e.g. round screen, or screen with
   // rounded corners).
@@ -283,11 +363,14 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
 
   // Takes the ownership of |menu| and displays it.
   virtual size_t ShowMenu(std::unique_ptr<Menu>&& menu, bool menu_only,
-                          const std::function<int(int, bool)>& key_handler);
+                          const std::function<int(int, bool)>& key_handler,
+                          bool refreshable = false);
 
   // Sets the menu highlight to the given index, wrapping if necessary. Returns the actual item
   // selected.
   virtual int SelectMenu(int sel);
+  virtual int SelectMenu(const Point& point);
+  virtual int ScrollMenu(int updown);
 
   virtual void draw_background_locked();
   virtual void draw_foreground_locked();
@@ -323,6 +406,7 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   // Implementation of the draw functions in DrawInterface.
   void SetColor(UIElement e) const override;
   void DrawHighlightBar(int x, int y, int width, int height) const override;
+  void DrawScrollBar(int y, int height) const override;
   int DrawHorizontalRule(int y) const override;
   void DrawSurface(const GRSurface* surface, int sx, int sy, int w, int h, int dx,
                    int dy) const override;
@@ -331,6 +415,17 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   int DrawTextLine(int x, int y, const std::string& line, bool bold) const override;
   int DrawTextLines(int x, int y, const std::vector<std::string>& lines) const override;
   int DrawWrappedTextLines(int x, int y, const std::vector<std::string>& lines) const override;
+  int MenuCharHeight() const override {
+    return menu_char_height_;
+  }
+  int MenuCharWidth() const override {
+    return menu_char_width_;
+  }
+  int MenuItemPadding() const override {
+    return menu_char_height_;
+  }
+
+  std::unique_ptr<MenuDrawFunctions> menu_draw_funcs_;
 
   // The layout to use.
   int layout_;
@@ -348,6 +443,9 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   std::unique_ptr<GRSurface> wipe_data_confirmation_text_;
   std::unique_ptr<GRSurface> wipe_data_menu_header_text_;
 
+  std::unique_ptr<GRSurface> carbon_logo_;
+  std::unique_ptr<GRSurface> back_icon_;
+  std::unique_ptr<GRSurface> back_icon_sel_;
   std::unique_ptr<GRSurface> fastbootd_logo_;
 
   // current_icon_ points to one of the frames in intro_frames_ or loop_frames_, indexed by
@@ -386,6 +484,7 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
 
   bool scrollable_menu_;
   std::unique_ptr<Menu> menu_;
+  int menu_start_y_;
 
   // An alternate text screen, swapped with 'text_' when we're viewing a log file.
   char** file_viewer_text_;
@@ -397,6 +496,8 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
 
   int char_width_;
   int char_height_;
+  int menu_char_height_;
+  int menu_char_width_;
 
   // The locale that's used to show the rendered texts.
   std::string locale_;

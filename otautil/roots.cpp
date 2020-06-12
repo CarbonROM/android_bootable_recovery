@@ -67,29 +67,38 @@ void load_volume_table() {
     return;
   }
 
-  // Create a boring /etc/fstab so tools like Busybox work
-  FILE* file = fopen("/etc/fstab", "w");
-  if (!file) {
-    LOG(ERROR) << "Unable to create /etc/fstab";
-  }
-
   fstab.emplace_back(FstabEntry{
       .mount_point = "/tmp", .fs_type = "ramdisk", .blk_device = "ramdisk", .length = 0 });
 
+  Fstab fake_fstab;
   std::cout << "recovery filesystem table" << std::endl << "=========================" << std::endl;
   for (size_t i = 0; i < fstab.size(); ++i) {
     const auto& entry = fstab[i];
     std::cout << "  " << i << " " << entry.mount_point << " "
               << " " << entry.fs_type << " " << entry.blk_device << " " << entry.length
               << std::endl;
-    if (file) {
-      write_fstab_entry(entry, file);
+
+    if (std::find_if(fake_fstab.begin(), fake_fstab.end(), [entry](const FstabEntry& e) {
+          return entry.mount_point == e.mount_point;
+        }) == fake_fstab.end()) {
+      FstabEntry* entry_detectfs =
+          android::fs_mgr::GetEntryForMountPointTryDetectFs(&fstab, entry.mount_point);
+      if (entry_detectfs == &entry) {
+        fake_fstab.emplace_back(entry);
+      }
     }
   }
   std::cout << std::endl;
 
+  // Create a boring /etc/fstab so tools like Busybox work
+  FILE* file = fopen("/etc/fstab", "w");
   if (file) {
+    for (auto& entry : fake_fstab) {
+      write_fstab_entry(entry, file);
+    }
     fclose(file);
+  } else {
+    LOG(ERROR) << "Unable to create /etc/fstab";
   }
 }
 
@@ -187,7 +196,7 @@ int format_volume(const std::string& volume, const std::string& directory) {
     LOG(ERROR) << "can't give path \"" << volume << "\" to format_volume";
     return -1;
   }
-  if (ensure_path_unmounted(volume) != 0) {
+  if (ensure_volume_unmounted(v->blk_device) != 0) {
     LOG(ERROR) << "format_volume: Failed to unmount \"" << v->mount_point << "\"";
     return -1;
   }
@@ -294,6 +303,8 @@ int format_volume(const std::string& volume) {
   return format_volume(volume, "");
 }
 
+static bool logical_partitions_auto_mapped = false;
+
 int setup_install_mounts() {
   if (fstab.empty()) {
     LOG(ERROR) << "can't set up install mounts: no fstab loaded";
@@ -317,11 +328,21 @@ int setup_install_mounts() {
       }
     }
   }
+  // Map logical partitions
+  if (android::base::GetBoolProperty("ro.boot.dynamic_partitions", false) &&
+      !logical_partitions_mapped()) {
+    std::string super_name = fs_mgr_get_super_partition_name();
+    if (!android::fs_mgr::CreateLogicalPartitions("/dev/block/by-name/" + super_name)) {
+      LOG(ERROR) << "Failed to map logical partitions";
+    } else {
+      logical_partitions_auto_mapped = true;
+    }
+  }
   return 0;
 }
 
 bool logical_partitions_mapped() {
-  return android::fs_mgr::LogicalPartitionsMapped();
+  return android::fs_mgr::LogicalPartitionsMapped() || logical_partitions_auto_mapped;
 }
 
 std::string get_system_root() {
