@@ -29,5 +29,7 @@ bool WipeCache(RecoveryUI* ui, const std::function<bool()>& confirm);
 // Returns true on success.
 bool WipeData(Device* device);
 
+bool WipeData(Device* device, std::string fs);
+
 // Returns true on success.
 bool WipeSystem(RecoveryUI* ui, const std::function<bool()>& confirm);
