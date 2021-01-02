@@ -36,7 +36,7 @@ constexpr const char* CACHE_ROOT = "/cache";
 constexpr const char* DATA_ROOT = "/data";
 constexpr const char* METADATA_ROOT = "/metadata";
 
-static bool EraseVolume(const char* volume, RecoveryUI* ui) {
+static bool EraseVolume(const char* volume, RecoveryUI* ui, std::string fs) {
   bool is_cache = (strcmp(volume, CACHE_ROOT) == 0);
 
   std::vector<saved_log_file> log_files;
@@ -46,7 +46,7 @@ static bool EraseVolume(const char* volume, RecoveryUI* ui) {
     log_files = ReadLogFilesToMemory();
   }
 
-  ui->Print("Formatting %s...\n", volume);
+  ui->Print("Formatting %s to %s...\n", volume, fs.c_str());
 
   Volume* vol = volume_for_mount_point(volume);
   if (ensure_volume_unmounted(vol->blk_device) == -1) {
@@ -54,13 +54,17 @@ static bool EraseVolume(const char* volume, RecoveryUI* ui) {
     return false;
   }
 
-  int result = format_volume(volume);
+  int result = format_volume(volume, "", fs);
 
   if (is_cache) {
     RestoreLogFilesAfterFormat(log_files);
   }
 
   return (result == 0);
+}
+
+static bool EraseVolume(const char* volume, RecoveryUI* ui) {
+  return EraseVolume(volume, ui, volume_for_mount_point(volume)->fs_type);
 }
 
 bool WipeCache(RecoveryUI* ui, const std::function<bool()>& confirm_func) {
@@ -83,7 +87,7 @@ bool WipeCache(RecoveryUI* ui, const std::function<bool()>& confirm_func) {
   return success;
 }
 
-bool WipeData(Device* device) {
+bool WipeData(Device* device, std::string fs) {
   RecoveryUI* ui = device->GetUI();
   ui->Print("\n-- Wiping data...\n");
   ui->SetBackground(RecoveryUI::ERASING);
@@ -96,7 +100,7 @@ bool WipeData(Device* device) {
 
   bool success = device->PreWipeData();
   if (success) {
-    success &= EraseVolume(DATA_ROOT, ui);
+    success &= EraseVolume(DATA_ROOT, ui, fs);
     bool has_cache = volume_for_mount_point("/cache") != nullptr;
     if (has_cache) {
       success &= EraseVolume(CACHE_ROOT, ui);
@@ -110,6 +114,10 @@ bool WipeData(Device* device) {
   }
   ui->Print("Data wipe %s.\n", success ? "complete" : "failed");
   return success;
+}
+
+bool WipeData(Device* device) {
+  return WipeData(device, volume_for_mount_point("/data")->fs_type);
 }
 
 bool WipeSystem(RecoveryUI* ui, const std::function<bool()>& confirm_func) {
